@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Animal Memory Match</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: system-ui, sans-serif; color: #fff7e0;
+         background: radial-gradient(circle at top, #4b1680, #14022a); min-height: 100vh;
+         display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  h1 { margin: 0; color: #f5c542; font-family: Georgia, serif; text-align: center; }
+  #turn { font-size: 22px; font-weight: bold; padding: 10px 22px; border: 2px solid #f5c542; border-radius: 99px; }
+  #turn.mine { background: #f5c542; color: #14022a; }
+  .scores { display: flex; gap: 12px; }
+  .score { padding: 8px 16px; border: 1px solid #f5c54266; border-radius: 12px; text-align: center; }
+  .score.active { border-color: #f5c542; box-shadow: 0 0 12px #f5c542; }
+  .score b { display: block; font-size: 26px; color: #f5c542; }
+  #board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; width: min(100%, 440px); }
+  .card { aspect-ratio: 1; border-radius: 12px; border: 2px solid #f5c542; cursor: pointer;
+          font-size: clamp(32px, 11vw, 56px); color: #f5c542;
+          background: radial-gradient(circle, #f5c542 0 2px, transparent 3px) 0 0 / 20px 20px, #5a1f96; }
+  .card.up { background: #fff7e0; }
+  .card.matched { box-shadow: 0 0 12px #f5c542; }
+  .card:disabled { cursor: default; }
+  #end { text-align: center; font-size: 24px; color: #f5c542; font-weight: bold; }
+  button.gold { font: inherit; font-weight: bold; background: #f5c542; color: #14022a;
+                border: 0; border-radius: 99px; padding: 8px 18px; cursor: pointer; margin-top: 8px; }
+  .share { font-size: 14px; text-align: center; }
+  .share input { width: min(80vw, 320px); padding: 6px; border-radius: 8px; border: 1px solid #f5c542; background: #0004; color: #fff; }
+</style>
+</head>
+<body>
+  <h1>★ Animal Memory Match ★</h1>
+  <div id="turn">Connecting…</div>
+  <div class="scores">
+    <div class="score" id="p0"><span id="n0">Player 1</span><b id="s0">0</b></div>
+    <div class="score" id="p1"><span id="n1">Player 2</span><b id="s1">0</b></div>
+  </div>
+  <div id="board"></div>
+  <div id="end" hidden><div id="winner"></div><button class="gold" id="restart">New game</button></div>
+  <div class="share">Send this link to your opponent:<br><input id="link" readonly> <button class="gold" id="copy">Copy</button></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  // Room code comes from the link (?room=...). If there is none, make one.
+  const params = new URLSearchParams(location.search);
+  let room = params.get('room');
+  if (!room) {
+    room = Math.random().toString(36).slice(2, 8);
+    history.replaceState(null, '', '?room=' + room);
+  }
+  const $ = (id) => document.getElementById(id);
+  $('link').value = location.href;
+  $('copy').onclick = () => { navigator.clipboard.writeText(location.href); $('copy').textContent = 'Copied!'; };
+
+  const socket = io();
+  let seat = -1, last = null;
+  socket.on('connect', () => socket.emit('join', room));
+  socket.on('seat', (s) => { seat = s; draw(last); });
+  socket.on('state', draw);
+  $('restart').onclick = () => socket.emit('restart');
+
+  // Make 16 card buttons once
+  for (let i = 0; i < 16; i++) {
+    const b = document.createElement('button');
+    b.className = 'card';
+    b.onclick = () => socket.emit('flip', i);
+    $('board').appendChild(b);
+  }
+
+  function draw(st) {
+    if (!st) return;
+    last = st;
+    const myTurn = st.bothHere && !st.over && st.turn === seat;
+
+    // Turn banner
+    let text;
+    if (st.over) text = 'Game over!';
+    else if (!st.bothHere) text = 'Waiting for the other player…';
+    else if (st.busy) text = 'No match… switching turns';
+    else if (seat === -1) text = `Player ${st.turn + 1}'s turn (watching)`;
+    else text = myTurn ? 'Your turn!' : `Player ${st.turn + 1}'s turn`;
+    $('turn').textContent = text;
+    $('turn').classList.toggle('mine', myTurn && !st.busy);
+
+    // Scores
+    for (const i of [0, 1]) {
+      $('s' + i).textContent = st.scores[i];
+      $('n' + i).textContent = 'Player ' + (i + 1) + (i === seat ? ' (you)' : '');
+      $('p' + i).classList.toggle('active', !st.over && st.turn === i);
+    }
+
+    // Cards
+    st.cards.forEach((c, i) => {
+      const b = $('board').children[i];
+      b.textContent = c.up ? c.animal : '★';
+      b.classList.toggle('up', c.up);
+      b.classList.toggle('matched', c.matched);
+      b.disabled = !myTurn || st.busy || c.up;
+    });
+
+    // Winner
+    $('end').hidden = !st.over;
+    const [a, b] = st.scores;
+    $('winner').textContent = a === b ? `It's a tie! ${a}–${b}` : `Player ${a > b ? 1 : 2} wins! ${Math.max(a, b)}–${Math.min(a, b)}`;
+  }
+</script>
+</body>
+</html>
